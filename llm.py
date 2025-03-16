@@ -1,58 +1,48 @@
 """
-This uses Large Language Models to allow for a more flexible search engine.
-We will use LangChain and OpenAI to search for the the most appropriate videos
-(from the ones on the website) for a given query.
-It should allow to answer questions like:
-(Topic 1) Possible equivalent questions:
-- Data Science
-- What is data science?
-- What is the best video to learn about data science?
-(Topic 2) Possible equivalent questions:
-- Machine Learning
-- What is machine learning?
-- What is the best video to learn about machine learning?
-- What is forecasting?
-- What is random forest?
-(Topic 3) Possible equivalent questions:
-- Streamlit
-- What is streamlit?
-- What is the best video to learn about streamlit?
+This module uses a Large Language Model (via LangChain and OpenAI)
+to allow a more flexible search engine for your companies cheat sheet.
+It returns the indices of the most relevant companies (from your sheet)
+for a given query. For example, queries like:
+- "tech"
+- "high quality growth"
+- "finance, strong moat"
+will be processed to return a list of company indices sorted from most to least relevant.
 """
 
+# Import necessary LangChain and helper functions
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import ResponseSchema
 from langchain.output_parsers import StructuredOutputParser
 
-from helpers import get_events_data
+# IMPORTANT: Update the import to use the companies data function
+from helpers import get_companies_data
 
-def get_most_relevant_videos(user_query, df, openai_api_key):
+def get_most_relevant_companies(user_query, df, openai_api_key):
     """
-    This function takes a query and a dataframe and returns the indices of the
-    most relevant videos in the dataframe for the query.
+    This function takes a user query and a dataframe (your companies cheat sheet),
+    and returns a list of indices corresponding to the most relevant companies for that query.
     """
-    # Convert the dataframe to a markdown table only for columns of interest:
-    # index, title, description, tags, author, and type
-    df_md = df[["Titulo"]].to_csv()
-    # Create a prompt template (this is not an f-string, but a template)
+    # Convert the dataframe to a markdown table only for columns of interest.
+    # Updated to use new headers: "Company", "Sector", and "Notes".
+    df_md = df[["Company", "Sector", "Notes"]].to_csv()
+    
+    # Create a prompt template adjusted for companies.
     prompt_template_str = """
-    Using the table provided on markdown format, find the most relevant videos
-    for the user query that will be provided below. 
-    You must return a list of indices of the videos in the dataframe that are
-    relevant to the query. Do not return more indices than are necessary or applicable.
-    Do not return more than a maximum of 10 indices. 
-    The list must be sorted and must be provided as a python list of integers. 
-    The values of the integers must be the indices of the videos in the dataframe. 
-    The output should be a python list of integers as a comma separated string, 
-    from the most relavant to the least relevant. For example, if the most relevant
-    video is the 12th, then the second most relevant is the 0th, then the third
-    most relevant is the 4th, and the fourth most relevant is the 3rd, then the
-    output should be:
+    Using the table provided in markdown format, find the most relevant companies 
+    for the user query provided below. 
+    You must return a list of indices of the companies in the dataframe that are
+    relevant to the query. Do not return more indices than are necessary.
+    Do not return more than a maximum of 10 indices.
+    The list must be sorted and provided as a Python list of integers.
+    The values of the integers correspond to the indices of the companies in the dataframe.
+    The output should be a Python list of integers as a comma-separated string, 
+    from the most relevant to the least relevant. For example, if the most relevant
+    company is the 12th, then the second is the 0th, then the third is the 4th, then:
     ```
-    [12, 0, 4, 3]
+    [12, 0, 4]
     ```
-    The query will be a text provided by the user, and will be delimited by triple simple 
-    quotes like ```this```.
+    The query will be provided by the user, delimited by triple backticks like ```this```.
 
     Dataframe:
     {data}
@@ -63,35 +53,42 @@ def get_most_relevant_videos(user_query, df, openai_api_key):
     ```
     """
 
+    # Create the prompt template from the string above.
     prompt_template = ChatPromptTemplate.from_template(prompt_template_str)
-    # Initialize the Large Language Model
+    
+    # Initialize the LLM using OpenAI with zero temperature for deterministic results.
     llm = ChatOpenAI(openai_api_key=openai_api_key, temperature=0.0)
-    # Create the prompt to be sent to the API
+    
+    # Format the prompt with the dataframe markdown and the user query.
     query_prompt = prompt_template.format_messages(
                             data=df_md,
                             query=user_query)
-    # Get the indexes (as a string)
+    
+    # Send the prompt to the LLM and get the response.
     full_answer = llm(query_prompt)
-    # Clean the answer
+    
+    # Clean the answer by removing backticks and extra text.
     answer = full_answer.content.replace("```", "").replace("python", "").strip()
+    
+    # Evaluate the answer string to a Python list.
     indexes_str = eval(answer)
-    # Convert to python
     indexes_list = list(indexes_str)
     return indexes_list
 
-if __name__=="__main__":
+if __name__ == "__main__":
+    # Load the OpenAI API key from Streamlit secrets (ensure your .streamlit/secrets.toml is updated).
     import toml
     openai_api_key = toml.load(".streamlit/secrets.toml")["OPENAI_KEY"]
-    # Here we mock the user query
-    user_query = "data science"
-    # Load the dataframe
-    df = get_events_data()
-    # Get the sorted list of indices of videos (relative to the dataframe)
-    # that are the most relevant to the query
-    indexes = get_most_relevant_videos(user_query, df, openai_api_key)
-    # Filter the dataframe to only show the relevant videos
+    
+    # Load the companies dataframe instead of events
+    df = get_companies_data()
+    
+    # Example user query; adjust as needed.
+    user_query = "tech companies with high growth and strong moat"
+    
+    # Get the sorted list of indices for the companies most relevant to the query.
+    indexes = get_most_relevant_companies(user_query, df, openai_api_key)
+    
+    # Filter the dataframe to only show the relevant companies and print the result.
     df_search = df.loc[indexes]
-    # Print the result
     print(df_search)
-
-
